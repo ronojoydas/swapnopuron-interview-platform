@@ -15,6 +15,7 @@ from app.security import hash_password
 
 
 TEST_PASSWORD = "TestInterviewerPassword123!"
+TEST_CANDIDATE_PASSWORD = "TestCandidatePassword123!"
 
 
 def create_test_interviewer(db, email):
@@ -33,7 +34,7 @@ def create_test_application(db, interviewer_id, candidate_number):
     candidate_user = User(
         full_name=f"Test Candidate {candidate_number}",
         email=f"interview-candidate-{candidate_number}@example.com",
-        password_hash=hash_password("TestCandidatePassword123!"),
+        password_hash=hash_password(TEST_CANDIDATE_PASSWORD),
         role=UserRole.CANDIDATE,
     )
     db.add(candidate_user)
@@ -100,25 +101,25 @@ def test_candidate_cannot_update_interview_status(
     client, test_session_factory
 ):
     email = "interview-permission-test@example.com"
-    password = "TestCandidatePassword123!"
 
     with test_session_factory() as db:
         user = User(
             full_name="Interview Permission Test",
             email=email,
-            password_hash=hash_password(password),
+            password_hash=hash_password(TEST_CANDIDATE_PASSWORD),
             role=UserRole.CANDIDATE,
         )
         db.add(user)
         db.commit()
 
-    token = login(client, email, password)
+    token = login(client, email, TEST_CANDIDATE_PASSWORD)
 
     response = client.patch(
         "/interviews/1/status",
         params={"status_value": "completed"},
         headers={"Authorization": f"Bearer {token}"},
     )
+
     assert response.status_code == 403
 
 
@@ -138,6 +139,7 @@ def test_interviewer_cannot_update_interview_status(
         params={"status_value": "completed"},
         headers={"Authorization": f"Bearer {token}"},
     )
+
     assert response.status_code == 403
 
 
@@ -179,3 +181,79 @@ def test_interviewer_sees_only_assigned_interviews(
 
     assert interview_one_id in returned_ids
     assert interview_two_id not in returned_ids
+
+
+def test_candidate_sees_only_their_own_interviews(
+    client, test_session_factory
+):
+    with test_session_factory() as db:
+        interviewer = create_test_interviewer(
+            db, "candidate-isolation-interviewer@example.com"
+        )
+
+        interview_one = create_test_application(
+            db, interviewer.id, 201
+        )
+        interview_two = create_test_application(
+            db, interviewer.id, 202
+        )
+
+        interview_one_id = interview_one.id
+        interview_two_id = interview_two.id
+        db.commit()
+
+    token = login(
+        client,
+        "interview-candidate-201@example.com",
+        TEST_CANDIDATE_PASSWORD,
+    )
+
+    response = client.get(
+        "/interviews",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200, response.text
+    returned_ids = {item["id"] for item in response.json()}
+
+    assert interview_one_id in returned_ids
+    assert interview_two_id not in returned_ids
+
+
+def test_invalid_interview_status_is_rejected(
+    client, test_session_factory
+):
+    with test_session_factory() as db:
+        staff = User(
+            full_name="Interview Status Staff",
+            email="interview-status-staff@example.com",
+            password_hash=hash_password(TEST_PASSWORD),
+            role=UserRole.STAFF,
+        )
+        db.add(staff)
+        db.flush()
+
+        interviewer = create_test_interviewer(
+            db, "invalid-status-interviewer@example.com"
+        )
+
+        interview = create_test_application(
+            db, interviewer.id, 301
+        )
+
+        interview_id = interview.id
+        db.commit()
+
+    token = login(
+        client,
+        "interview-status-staff@example.com",
+        TEST_PASSWORD,
+    )
+
+    response = client.patch(
+        f"/interviews/{interview_id}/status",
+        params={"status_value": "invalid_status"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 422
