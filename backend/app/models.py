@@ -133,7 +133,9 @@ class Interview(Base):
     interviewer_id: Mapped[int] = mapped_column(
         ForeignKey("users.id")
     )
-    scheduled_at: Mapped[datetime] = mapped_column(DateTime)
+    scheduled_at: Mapped[datetime] = mapped_column(
+    DateTime(timezone=True)
+)
     status: Mapped[InterviewStatus] = mapped_column(
         default=InterviewStatus.SCHEDULED
     )
