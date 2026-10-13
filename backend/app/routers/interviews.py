@@ -1,4 +1,3 @@
-
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -35,42 +34,34 @@ def schedule_interview(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # Only staff and admins can schedule interviews.
     if current_user.role not in (UserRole.ADMIN, UserRole.STAFF):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only staff and admins can schedule interviews",
         )
 
-    # Check that the application exists.
     application = db.get(Application, interview_data.application_id)
-
     if application is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Application not found",
         )
 
-    # An interview can only be scheduled for an application in the interview stage.
     if application.status != ApplicationStatus.INTERVIEW:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Application must be in interview status before scheduling",
         )
 
-    # Check that the assigned interviewer exists.
     interviewer = db.get(User, interview_data.interviewer_id)
-
     if interviewer is None or interviewer.role != UserRole.INTERVIEWER:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="The assigned user must have the interviewer role",
         )
 
-    # Require a future interview time.
     scheduled_at = interview_data.scheduled_at
-
-    if scheduled_at.tzinfo is None:
+    if scheduled_at.tzinfo is None or scheduled_at.utcoffset() is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="scheduled_at must include a timezone, such as +05:30",
@@ -89,63 +80,45 @@ def schedule_interview(
         status=InterviewStatus.SCHEDULED,
         meeting_link=interview_data.meeting_link,
     )
-
     db.add(interview)
     db.commit()
     db.refresh(interview)
-
     return interview
 
 
-@router.get(
-    "",
-    response_model=list[InterviewResponse],
-)
+@router.get("", response_model=list[InterviewResponse])
 def list_interviews(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # Staff and admins can view all interviews.
     if current_user.role in (UserRole.ADMIN, UserRole.STAFF):
-        interviews = db.scalars(
+        return list(db.scalars(
             select(Interview).order_by(Interview.scheduled_at.asc())
-        ).all()
-        return list(interviews)
+        ).all())
 
-    # Interviewers can view only interviews assigned to them.
     if current_user.role == UserRole.INTERVIEWER:
-        interviews = db.scalars(
+        return list(db.scalars(
             select(Interview)
             .where(Interview.interviewer_id == current_user.id)
             .order_by(Interview.scheduled_at.asc())
-        ).all()
-        return list(interviews)
+        ).all())
 
-    # Candidates can view interviews linked to their own applications.
     if current_user.role == UserRole.CANDIDATE:
         candidate = db.scalar(
-            select(Candidate).where(
-                Candidate.user_id == current_user.id
-            )
+            select(Candidate).where(Candidate.user_id == current_user.id)
         )
-
         if candidate is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Candidate profile not found",
             )
 
-        interviews = db.scalars(
+        return list(db.scalars(
             select(Interview)
-            .join(
-                Application,
-                Interview.application_id == Application.id,
-            )
+            .join(Application, Interview.application_id == Application.id)
             .where(Application.candidate_id == candidate.id)
             .order_by(Interview.scheduled_at.asc())
-        ).all()
-
-        return list(interviews)
+        ).all())
 
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
@@ -153,28 +126,20 @@ def list_interviews(
     )
 
 
-@router.patch(
-    "/{interview_id}/status",
-    response_model=InterviewResponse,
-)
+@router.patch("/{interview_id}/status", response_model=InterviewResponse)
 def update_interview_status(
     interview_id: int,
     status_value: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # Only staff and admins can update interview status.
-    if current_user.role not in (
-        UserRole.ADMIN,
-        UserRole.STAFF,
-    ):
+    if current_user.role not in (UserRole.ADMIN, UserRole.STAFF):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only staff and admins can update interview status",
         )
 
     interview = db.get(Interview, interview_id)
-
     if interview is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -182,7 +147,6 @@ def update_interview_status(
         )
 
     allowed_statuses = {item.value for item in InterviewStatus}
-
     if status_value not in allowed_statuses:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -192,9 +156,26 @@ def update_interview_status(
             ),
         )
 
-    interview.status = InterviewStatus(status_value)
+    new_status = InterviewStatus(status_value)
+    allowed_transitions = {
+        InterviewStatus.SCHEDULED: {
+            InterviewStatus.COMPLETED,
+            InterviewStatus.CANCELLED,
+        },
+        InterviewStatus.COMPLETED: set(),
+        InterviewStatus.CANCELLED: set(),
+    }
 
+    if new_status not in allowed_transitions[interview.status]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Cannot change interview status from "
+                f"'{interview.status.value}' to '{new_status.value}'"
+            ),
+        )
+
+    interview.status = new_status
     db.commit()
     db.refresh(interview)
-
     return interview
