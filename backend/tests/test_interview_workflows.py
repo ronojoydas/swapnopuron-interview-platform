@@ -9,14 +9,13 @@ from app.models import (
     User,
     UserRole,
 )
+from app.security import hash_password
 
 
 TEST_PASSWORD = "TestWorkflowPassword123!"
 
 
 def create_user(db, email, role):
-    from app.security import hash_password
-
     user = User(
         full_name=f"Test User {email}",
         email=email,
@@ -335,3 +334,83 @@ def test_unassigned_interviewer_cannot_submit_feedback(
     )
 
     assert response.status_code == 403
+
+
+def test_cannot_schedule_interview_in_the_past(
+    client, test_session_factory
+):
+    staff_email = "workflow-past-date-staff@example.com"
+
+    with test_session_factory() as db:
+        create_user(db, staff_email, UserRole.STAFF)
+        interviewer = create_user(
+            db,
+            "workflow-past-date-interviewer@example.com",
+            UserRole.INTERVIEWER,
+        )
+        application = create_application(
+            db, 206, ApplicationStatus.INTERVIEW
+        )
+
+        interviewer_id = interviewer.id
+        application_id = application.id
+        db.commit()
+
+    token = get_token(client, staff_email)
+
+    response = client.post(
+        "/interviews",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "application_id": application_id,
+            "interviewer_id": interviewer_id,
+            "scheduled_at": (
+                datetime.now(timezone.utc) - timedelta(days=1)
+            ).isoformat(),
+            "meeting_link": "https://example.com/test-meeting",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "future time" in response.json()["detail"].lower()
+
+
+def test_cannot_schedule_interview_without_timezone(
+    client, test_session_factory
+):
+    staff_email = "workflow-no-timezone-staff@example.com"
+
+    with test_session_factory() as db:
+        create_user(db, staff_email, UserRole.STAFF)
+        interviewer = create_user(
+            db,
+            "workflow-no-timezone-interviewer@example.com",
+            UserRole.INTERVIEWER,
+        )
+        application = create_application(
+            db, 207, ApplicationStatus.INTERVIEW
+        )
+
+        interviewer_id = interviewer.id
+        application_id = application.id
+        db.commit()
+
+    token = get_token(client, staff_email)
+
+    naive_datetime = (
+        datetime.now(timezone.utc) + timedelta(days=3)
+    ).strftime("%Y-%m-%dT%H:%M:%S")
+
+    response = client.post(
+        "/interviews",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "application_id": application_id,
+            "interviewer_id": interviewer_id,
+            "scheduled_at": naive_datetime,
+            "meeting_link": "https://example.com/test-meeting",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "timezone" in response.json()["detail"].lower()
