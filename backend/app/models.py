@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from sqlalchemy import DateTime, ForeignKey, String, Text
@@ -40,7 +40,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[UserRole] = mapped_column(default=UserRole.CANDIDATE)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc)
     )
 
     candidate_profile: Mapped["Candidate | None"] = relationship(
@@ -85,7 +85,7 @@ class Opportunity(Base):
         default="open"
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc)
     )
 
     applications: Mapped[list["Application"]] = relationship(
@@ -107,7 +107,7 @@ class Application(Base):
         default=ApplicationStatus.APPLIED
     )
     applied_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc)
     )
 
     candidate: Mapped["Candidate"] = relationship(
@@ -160,5 +160,5 @@ class Feedback(Base):
     comments: Mapped[str | None] = mapped_column(Text)
     recommendation: Mapped[str | None] = mapped_column(String(50))
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc)
     )
