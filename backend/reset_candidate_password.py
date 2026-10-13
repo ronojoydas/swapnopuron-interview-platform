@@ -1,3 +1,4 @@
+
 from getpass import getpass
 
 from sqlalchemy import select
@@ -8,12 +9,16 @@ from app.security import hash_password
 
 
 def main():
-    email = "candidate2@example.com"
+    email = input("Candidate email to reset: ").strip().lower()
+
+    if not email:
+        print("Email is required.")
+        return
 
     new_password = getpass("Enter new candidate password: ")
 
-    if len(new_password) < 8:
-        print("Password must be at least 8 characters.")
+    if len(new_password) < 12:
+        print("Password must be at least 12 characters.")
         return
 
     confirm_password = getpass("Confirm new candidate password: ")
@@ -22,35 +27,30 @@ def main():
         print("Passwords do not match. Nothing changed.")
         return
 
-    db = SessionLocal()
+    with SessionLocal() as db:
+        try:
+            user = db.scalar(
+                select(User).where(User.email == email)
+            )
 
-    try:
-        user = db.scalar(
-            select(User).where(User.email == email)
-        )
+            if user is None:
+                print("Account not found.")
+                return
 
-        if user is None:
-            print("Candidate account not found.")
-            return
+            if user.role != UserRole.CANDIDATE:
+                print("Account is not a candidate. Nothing changed.")
+                return
 
-        if user.role != UserRole.CANDIDATE:
-            print("Account is not a candidate. Nothing changed.")
-            return
+            user.password_hash = hash_password(new_password)
+            db.commit()
 
-        user.password_hash = hash_password(new_password)
-        db.commit()
+            print("Candidate password reset successfully.")
+            print(f"Email: {user.email}")
+            print(f"User ID: {user.id}")
 
-        print("Candidate password reset successfully.")
-        print(f"Email: {user.email}")
-        print(f"User ID: {user.id}")
-        print(f"Role: {user.role.value}")
-
-    except Exception:
-        db.rollback()
-        raise
-
-    finally:
-        db.close()
+        except Exception:
+            db.rollback()
+            raise
 
 
 if __name__ == "__main__":

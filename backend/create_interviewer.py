@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from app.database import SessionLocal
 from app.models import User, UserRole
-from app.security import password_hash
+from app.security import hash_password
 
 
 def main():
@@ -19,8 +19,8 @@ def main():
     password = getpass("Set interviewer password: ")
     confirm_password = getpass("Confirm interviewer password: ")
 
-    if len(password) < 8:
-        print("Password must be at least 8 characters.")
+    if len(password) < 12:
+        print("Password must be at least 12 characters.")
         return
 
     if password != confirm_password:
@@ -28,33 +28,37 @@ def main():
         return
 
     with SessionLocal() as db:
-        existing_user = db.scalar(
-            select(User).where(User.email == email)
-        )
-
-        if existing_user:
-            print(
-                "An account with this email already exists. "
-                f"Existing role: {existing_user.role.value}"
+        try:
+            existing_user = db.scalar(
+                select(User).where(User.email == email)
             )
-            print("No account was changed.")
-            return
 
-        interviewer = User(
-            full_name=full_name,
-            email=email,
-            password_hash=password_hash.hash(password),
-            role=UserRole.INTERVIEWER,
-        )
+            if existing_user:
+                print(
+                    "An account with this email already exists. "
+                    f"Existing role: {existing_user.role.value}"
+                )
+                return
 
-        db.add(interviewer)
-        db.commit()
-        db.refresh(interviewer)
+            interviewer = User(
+                full_name=full_name,
+                email=email,
+                password_hash=hash_password(password),
+                role=UserRole.INTERVIEWER,
+            )
 
-        print("\nInterviewer account created successfully.")
-        print(f"User ID: {interviewer.id}")
-        print(f"Email: {interviewer.email}")
-        print(f"Role: {interviewer.role.value}")
+            db.add(interviewer)
+            db.commit()
+            db.refresh(interviewer)
+
+            print("Interviewer account created successfully.")
+            print(f"User ID: {interviewer.id}")
+            print(f"Email: {interviewer.email}")
+            print(f"Role: {interviewer.role.value}")
+
+        except Exception:
+            db.rollback()
+            raise
 
 
 if __name__ == "__main__":
