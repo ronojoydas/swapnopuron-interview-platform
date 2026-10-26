@@ -8,3 +8,9 @@ __pycache__/
 .pytest_cache/
 node_modules/
 dist/
+
+# Local backup — preserve locally, don't commit
+frontend-backup-20261026-072259/
+
+# Local backup — preserve locally, don't commit
+frontend-backup-20261026-072259/
