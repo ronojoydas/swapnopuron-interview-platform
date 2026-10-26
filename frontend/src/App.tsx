@@ -345,16 +345,46 @@ function App() {
     return () => { cancelled = true; };
   }, [user, page, token]);
 
+  
   useEffect(() => {
     if (!user || page !== "profile" || user.role !== "candidate") return;
+
     let cancelled = false;
-    setProfileLoading(true); setProfileError(""); setProfileMessage("");
+    setProfileLoading(true);
+    setProfileError("");
+    setProfileMessage("");
+
     apiRequest("/candidates/me", token)
-      .then((data: CandidateProfile) => { if (!cancelled) setProfile({ phone: data.phone ?? "", education: data.education ?? "", skills: data.skills ?? "", experience: data.experience ?? "", resume_path: data.resume_path ?? "" }); })
-      .catch((err: Error) => { if (!cancelled) setProfileError(err.message); })
-      .finally(() => { if (!cancelled) setProfileLoading(false); });
-    return () => { cancelled = true; };
+      .then((data: CandidateProfile) => {
+        if (cancelled) return;
+
+        setProfile({
+          phone: data.phone ?? "",
+          education: data.education ?? "",
+          skills: data.skills ?? "",
+          experience: data.experience ?? "",
+          resume_path: data.resume_path ?? "",
+        });
+      })
+      .catch((err: Error) => {
+        if (cancelled) return;
+
+        if (err.message === "Candidate profile not found") {
+          setProfile({ ...EMPTY_PROFILE });
+          setProfileError("");
+        } else {
+          setProfileError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setProfileLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [user, page, token]);
+
 
   useEffect(() => {
     if (!user || page !== "interviews") return;
@@ -410,14 +440,44 @@ function App() {
     return () => { cancelled = true; };
   }, [user, page, token]);
 
+  
   async function handleSaveProfile(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setProfileError(""); setProfileMessage(""); setProfileSaving(true);
+    event.preventDefault();
+    setProfileError("");
+    setProfileMessage("");
+    setProfileSaving(true);
+
     try {
-      await apiRequest("/candidates/me", token, { method: "PUT", body: JSON.stringify(profile) });
+      let method: "POST" | "PUT" = "PUT";
+
+      try {
+        await apiRequest("/candidates/me", token);
+      } catch (err) {
+        if (
+          err instanceof Error &&
+          err.message === "Candidate profile not found"
+        ) {
+          method = "POST";
+        } else {
+          throw err;
+        }
+      }
+
+      await apiRequest("/candidates/me", token, {
+        method,
+        body: JSON.stringify(profile),
+      });
+
       setProfileMessage("Profile saved successfully.");
-    } catch (err) { setProfileError(err instanceof Error ? err.message : "Could not save profile."); }
-    finally { setProfileSaving(false); }
+    } catch (err) {
+      setProfileError(
+        err instanceof Error ? err.message : "Could not save profile.",
+      );
+    } finally {
+      setProfileSaving(false);
+    }
   }
+
 
   async function handleApply(opportunity: Opportunity) {
     setApplicationMessage(""); setApplyingOpportunityId(opportunity.id);
