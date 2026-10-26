@@ -1,7 +1,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.dependencies import get_current_user
@@ -22,6 +22,37 @@ router = APIRouter(
 )
 
 
+def build_application_response(
+    application: Application,
+) -> ApplicationResponse:
+    """Build an application response including candidate account/profile details."""
+    candidate = application.candidate
+    user = candidate.user if candidate else None
+
+    return ApplicationResponse(
+        id=application.id,
+        candidate_id=application.candidate_id,
+        opportunity_id=application.opportunity_id,
+        status=application.status.value
+        if isinstance(application.status, ApplicationStatus)
+        else application.status,
+        applied_at=application.applied_at,
+        candidate_name=user.full_name if user else None,
+        candidate_email=user.email if user else None,
+        candidate_phone=candidate.phone if candidate else None,
+        candidate_education=candidate.education if candidate else None,
+        candidate_skills=candidate.skills if candidate else None,
+        candidate_experience=candidate.experience if candidate else None,
+    )
+
+
+def application_query():
+    """Load the candidate and user details with each application."""
+    return select(Application).options(
+        joinedload(Application.candidate).joinedload(Candidate.user)
+    )
+
+
 @router.post(
     "/{opportunity_id}",
     response_model=ApplicationResponse,
@@ -39,9 +70,7 @@ def apply_for_opportunity(
         )
 
     candidate = db.scalar(
-        select(Candidate).where(
-            Candidate.user_id == current_user.id
-        )
+        select(Candidate).where(Candidate.user_id == current_user.id)
     )
 
     if candidate is None:
@@ -87,7 +116,12 @@ def apply_for_opportunity(
     db.commit()
     db.refresh(application)
 
-    return application
+    # Reload the related candidate and account so the response includes their details.
+    application = db.scalar(
+        application_query().where(Application.id == application.id)
+    )
+
+    return build_application_response(application)
 
 
 @router.get(
@@ -105,9 +139,7 @@ def get_my_applications(
         )
 
     candidate = db.scalar(
-        select(Candidate).where(
-            Candidate.user_id == current_user.id
-        )
+        select(Candidate).where(Candidate.user_id == current_user.id)
     )
 
     if candidate is None:
@@ -117,12 +149,15 @@ def get_my_applications(
         )
 
     applications = db.scalars(
-        select(Application)
+        application_query()
         .where(Application.candidate_id == candidate.id)
         .order_by(Application.applied_at.desc())
     ).all()
 
-    return list(applications)
+    return [
+        build_application_response(application)
+        for application in applications
+    ]
 
 
 @router.get(
@@ -133,22 +168,20 @@ def get_all_applications(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if current_user.role not in (
-        UserRole.ADMIN,
-        UserRole.STAFF,
-    ):
+    if current_user.role not in (UserRole.ADMIN, UserRole.STAFF):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only staff and admins can view all applications",
         )
 
     applications = db.scalars(
-        select(Application).order_by(
-            Application.applied_at.desc()
-        )
+        application_query().order_by(Application.applied_at.desc())
     ).all()
 
-    return list(applications)
+    return [
+        build_application_response(application)
+        for application in applications
+    ]
 
 
 @router.patch(
@@ -161,10 +194,7 @@ def update_application_status(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if current_user.role not in (
-        UserRole.ADMIN,
-        UserRole.STAFF,
-    ):
+    if current_user.role not in (UserRole.ADMIN, UserRole.STAFF):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only staff and admins can update application status",
@@ -178,9 +208,7 @@ def update_application_status(
             detail="Application not found",
         )
 
-    allowed_statuses = {
-        item.value for item in ApplicationStatus
-    }
+    allowed_statuses = {item.value for item in ApplicationStatus}
 
     if status_data.status not in allowed_statuses:
         raise HTTPException(
@@ -192,11 +220,13 @@ def update_application_status(
         )
 
     application.status = ApplicationStatus(status_data.status)
-
     db.commit()
-    db.refresh(application)
 
-    return application
+    application = db.scalar(
+        application_query().where(Application.id == application_id)
+    )
+
+    return build_application_response(application)
 
 
 @router.get(
@@ -208,7 +238,9 @@ def get_application_details(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    application = db.get(Application, application_id)
+    application = db.scalar(
+        application_query().where(Application.id == application_id)
+    )
 
     if application is None:
         raise HTTPException(
@@ -216,19 +248,12 @@ def get_application_details(
             detail="Application not found",
         )
 
-    # Staff and admins can view any application.
-    if current_user.role in (
-        UserRole.ADMIN,
-        UserRole.STAFF,
-    ):
-        return application
+    if current_user.role in (UserRole.ADMIN, UserRole.STAFF):
+        return build_application_response(application)
 
-    # Candidates can view only their own applications.
     if current_user.role == UserRole.CANDIDATE:
         candidate = db.scalar(
-            select(Candidate).where(
-                Candidate.user_id == current_user.id
-            )
+            select(Candidate).where(Candidate.user_id == current_user.id)
         )
 
         if candidate is None:
@@ -243,7 +268,7 @@ def get_application_details(
                 detail="You can only view your own applications",
             )
 
-        return application
+        return build_application_response(application)
 
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,

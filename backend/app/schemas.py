@@ -1,3 +1,4 @@
+
 from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field
@@ -64,9 +65,20 @@ class ApplicationResponse(BaseModel):
     status: str
     applied_at: datetime
 
+    # Candidate account details
+    candidate_name: str | None = None
+    candidate_email: EmailStr | None = None
+
+    # Candidate profile details
+    candidate_phone: str | None = None
+    candidate_education: str | None = None
+    candidate_skills: str | None = None
+    candidate_experience: str | None = None
+
     model_config = {
         "from_attributes": True
     }
+
 
 class CandidateProfileCreate(BaseModel):
     phone: str | None = Field(default=None, max_length=30)
@@ -87,10 +99,8 @@ class CandidateProfileResponse(BaseModel):
 
     model_config = {
         "from_attributes": True
-    }    
+    }
 
-    
-from pydantic import BaseModel
 
 class ApplicationStatusUpdate(BaseModel):
     status: str
@@ -111,14 +121,19 @@ class InterviewResponse(BaseModel):
     status: str
     meeting_link: str | None
 
-    model_config = {"from_attributes": True}
+    model_config = {
+        "from_attributes": True
+    }
+
+
 
 class FeedbackCreate(BaseModel):
-    technical_score: int = Field(ge=1, le=10)
-    communication_score: int = Field(ge=1, le=10)
-    problem_solving_score: int = Field(ge=1, le=10)
+    technical_score: int = Field(ge=1, le=5)
+    communication_score: int = Field(ge=1, le=5)
+    problem_solving_score: int = Field(ge=1, le=5)
     comments: str = Field(min_length=5, max_length=5000)
     recommendation: str = Field(min_length=2, max_length=50)
+
 
 
 class FeedbackResponse(BaseModel):
@@ -131,5 +146,6 @@ class FeedbackResponse(BaseModel):
     recommendation: str
     created_at: datetime
 
-    model_config = {"from_attributes": True}
-
+    model_config = {
+        "from_attributes": True
+    }
