@@ -9,8 +9,14 @@ __pycache__/
 node_modules/
 dist/
 
-# Local backup — preserve locally, don't commit
+# Local backup ï¿½ preserve locally, don't commit
 frontend-backup-20261026-072259/
 
-# Local backup — preserve locally, don't commit
+# Local backup ï¿½ preserve locally, don't commit
 frontend-backup-20261026-072259/
+# Local interview router backup
+backend/app/routers/interviews.py.backup
+
+# Local account creation scripts
+create_interviewer_user.py
+create_staff_user.py
