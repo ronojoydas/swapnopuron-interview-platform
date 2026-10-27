@@ -24,6 +24,31 @@ router = APIRouter(
 )
 
 
+@router.get("/interviewers")
+def list_interviewers(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role not in (UserRole.ADMIN, UserRole.STAFF):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only staff and admins can view interviewers",
+        )
+
+    interviewers = db.scalars(
+        select(User)
+        .where(User.role == UserRole.INTERVIEWER)
+        .order_by(User.full_name.asc())
+    ).all()
+
+    return [
+        {
+            "id": interviewer.id,
+            "full_name": interviewer.full_name,
+            "email": interviewer.email,
+        }
+        for interviewer in interviewers
+    ]
 @router.post(
     "",
     response_model=InterviewResponse,
